@@ -72,9 +72,12 @@ Browser writes are same-origin only. Agent writes carry `Authorization: Bearer <
 | `bambu` | Listed for planning; not implemented in the agent yet | MQTT + FTPS |
 
 ```
-node scripts/bench-agent.mjs --example > bench-agent.json   # edit
+node scripts/bench-agent.mjs --discover                     # finds printers on the LAN, prints machine entries
+node scripts/bench-agent.mjs --example > bench-agent.json   # or start from the example and edit
 BENCH_AGENT_TOKEN=… node scripts/bench-agent.mjs bench-agent.json
 ```
+
+`--discover` probes every host on the local /24 for OctoPrint, Moonraker, PrusaLink and Bambu LAN-mode signatures, so a new printer needs no manual configuration beyond its API key.
 
 ## Job lifecycle
 

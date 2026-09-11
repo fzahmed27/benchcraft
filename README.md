@@ -34,6 +34,7 @@ Local secrets go in `.dev.vars` (ignored): `BENCH_AGENT_TOKEN`, `BENCH_API_TOKEN
 To try the whole loop without hardware:
 
 ```
+node scripts/bench-agent.mjs --discover                          # lists real printers on the LAN
 node scripts/bench-agent.mjs --example > bench-agent.json      # keep only sim-printer, set server
 BENCH_AGENT_TOKEN=… node scripts/bench-agent.mjs bench-agent.json
 ```

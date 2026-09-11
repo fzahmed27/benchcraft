@@ -10,6 +10,7 @@
  * Usage:
  *   BENCH_AGENT_TOKEN=... node scripts/bench-agent.mjs bench-agent.json
  *   node scripts/bench-agent.mjs --example   # print an example config
+ *   node scripts/bench-agent.mjs --discover  # find printers on the LAN and print machine entries
  */
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
@@ -35,6 +36,43 @@ const EXAMPLE = {
 
 const args = process.argv.slice(2)
 if (args.includes('--example')) { console.log(JSON.stringify(EXAMPLE, null, 2)); process.exit(0) }
+if (args.includes('--discover')) { await discover(); process.exit(0) }
+
+/**
+ * Find printers on the local network without any configuration: probes every host on the
+ * machine's /24 subnets for OctoPrint, Moonraker, PrusaLink and Bambu (LAN mode) signatures
+ * and prints ready-to-paste machine entries.
+ */
+async function discover() {
+  const { networkInterfaces } = await import('node:os')
+  const net = await import('node:net')
+  const subnets = new Set()
+  for (const list of Object.values(networkInterfaces())) for (const i of list ?? []) if (i.family === 'IPv4' && !i.internal) subnets.add(i.address.split('.').slice(0, 3).join('.'))
+  const hosts = [...subnets].flatMap(s => Array.from({ length: 254 }, (_, k) => `${s}.${k + 1}`))
+  const ports = [80, 5000, 7125, 8883]
+  const probe = (host, port) => new Promise(r => { const s = net.connect({ host, port }); const t = setTimeout(() => { s.destroy(); r(false) }, 600); s.on('connect', () => { clearTimeout(t); s.destroy(); r(true) }); s.on('error', () => { clearTimeout(t); r(false) }) })
+  console.error(`Probing ${hosts.length} hosts on ${[...subnets].join(', ')} …`)
+  const open = []
+  let i = 0
+  await Promise.all(Array.from({ length: 200 }, async () => { while (i < hosts.length) { const h = hosts[i++]; for (const p of ports) if (await probe(h, p)) open.push([h, p]) } }))
+  const found = []
+  const get = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(2000) }); return { status: r.status, text: (await r.text()).slice(0, 4000), headers: r.headers } } catch { return null } }
+  for (const [h, p] of open) {
+    const base = `http://${h}:${p}`
+    if (p === 8883) { found.push({ id: `bambu-${h.replace(/\./g, '-')}`, name: `Bambu Lab printer at ${h}`, kind: 'fdm_printer', adapter: 'bambu', url: h, note: 'Port 8883 answers; Bambu adapter is not implemented yet' }); continue }
+    let r = await get(`${base}/api/version`)
+    if (r && r.status === 200 && /octoprint/i.test(r.text)) { found.push({ id: `octoprint-${h.replace(/\./g, '-')}`, name: `OctoPrint at ${h}`, kind: 'fdm_printer', adapter: 'octoprint', url: base, apiKey: 'PASTE_OCTOPRINT_API_KEY' }); continue }
+    if (r && r.status === 401 && /prusa/i.test(r.headers.get('www-authenticate') ?? '')) { found.push({ id: `prusa-${h.replace(/\./g, '-')}`, name: `PrusaLink at ${h}`, kind: 'fdm_printer', adapter: 'prusalink', url: base, apiKey: 'PASTE_PRUSALINK_API_KEY' }); continue }
+    r = await get(`${base}/server/info`)
+    if (r && r.status === 200 && /klippy|moonraker/i.test(r.text)) { found.push({ id: `moonraker-${h.replace(/\./g, '-')}`, name: `Klipper printer at ${h}`, kind: 'fdm_printer', adapter: 'moonraker', url: base }); continue }
+    r = await get(`${base}/api/v1/status`)
+    const prusaJson = (() => { try { return r && r.status === 200 && 'printer' in JSON.parse(r.text) } catch { return false } })()
+    if (r && (r.status === 401 || prusaJson)) { found.push({ id: `prusa-${h.replace(/\./g, '-')}`, name: `PrusaLink at ${h}`, kind: 'fdm_printer', adapter: 'prusalink', url: base, apiKey: 'PASTE_PRUSALINK_API_KEY' }); continue }
+  }
+  if (!found.length) { console.error('No printers found. Check the printer is on the same Wi-Fi and its local API is enabled (PrusaLink, OctoPrint, Moonraker, or Bambu LAN mode).'); return }
+  console.error(`Found ${found.length} machine(s). Paste into the "machines" array of bench-agent.json:`)
+  console.log(JSON.stringify(found, null, 2))
+}
 const configPath = args.find(a => !a.startsWith('--')) ?? 'bench-agent.json'
 const config = JSON.parse(await readFile(configPath, 'utf8'))
 const token = process.env.BENCH_AGENT_TOKEN ?? config.token
