@@ -16,6 +16,7 @@ import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { bambu, bambuDiscover } from './bench-agent-bambu.mjs'
 
 const EXAMPLE = {
   server: 'https://your-benchcraft-site.example',
@@ -23,13 +24,17 @@ const EXAMPLE = {
   tools: {
     openscad: 'openscad',
     slicer: 'prusa-slicer',
-    slicerArgs: ['--export-gcode', '--load', '/home/pi/printer-profile.ini'],
+    // {in} and {out} are replaced with the STL and the output path. PrusaSlicer shown; for a Bambu printer use
+    // OrcaSlicer: ['--load-settings', 'machine.json;process.json', '--load-filaments', 'filament.json', '--slice', '0', '--export-3mf', '{out}', '{in}'] with slicerOutput '3mf'.
+    slicerArgs: ['--export-gcode', '--load', '/home/pi/printer-profile.ini', '-o', '{out}', '{in}'],
+    slicerOutput: 'gcode',
   },
   machines: [
     { id: 'sim-printer', name: 'Simulated printer', kind: 'fdm_printer', adapter: 'simulated', location: 'nowhere', capabilities: { buildVolumeMm: { x: 180, y: 180, z: 180 }, materials: ['PLA'], accepts: ['scad', 'stl', 'gcode'] } },
     { id: 'prusa-mini', name: 'Prusa MINI+', kind: 'fdm_printer', adapter: 'prusalink', url: 'http://192.168.1.50', apiKey: 'PRUSALINK_API_KEY', location: 'workshop shelf', capabilities: { buildVolumeMm: { x: 180, y: 180, z: 180 }, materials: ['PLA', 'PETG'], nozzleMm: 0.4 } },
     { id: 'voron', name: 'Voron 2.4', kind: 'fdm_printer', adapter: 'moonraker', url: 'http://voron.local', capabilities: { buildVolumeMm: { x: 350, y: 350, z: 340 }, materials: ['ABS', 'PLA'] } },
     { id: 'ender', name: 'Ender 3 + OctoPrint', kind: 'fdm_printer', adapter: 'octoprint', url: 'http://octopi.local', apiKey: 'OCTOPRINT_API_KEY', capabilities: { buildVolumeMm: { x: 220, y: 220, z: 250 }, materials: ['PLA'] } },
+    { id: 'a1mini', name: 'Bambu Lab A1 mini', kind: 'fdm_printer', adapter: 'bambu', url: '192.168.1.60', serial: '0309CA4B0300123', accessCode: '12345678', location: 'desk', capabilities: { buildVolumeMm: { x: 180, y: 180, z: 180 }, materials: ['PLA', 'PETG'], nozzleMm: 0.4 } },
     { id: 'cnc', name: 'Desktop CNC (GRBL)', kind: 'cnc_router', adapter: 'grbl', port: '/dev/ttyUSB0', baud: 115200, capabilities: { buildVolumeMm: { x: 300, y: 180, z: 45 }, materials: ['plywood', 'acrylic'], accepts: ['gcode'] } },
   ],
 }
@@ -51,15 +56,17 @@ async function discover() {
   const hosts = [...subnets].flatMap(s => Array.from({ length: 254 }, (_, k) => `${s}.${k + 1}`))
   const ports = [80, 5000, 7125, 8883]
   const probe = (host, port) => new Promise(r => { const s = net.connect({ host, port }); const t = setTimeout(() => { s.destroy(); r(false) }, 600); s.on('connect', () => { clearTimeout(t); s.destroy(); r(true) }); s.on('error', () => { clearTimeout(t); r(false) }) })
-  console.error(`Probing ${hosts.length} hosts on ${[...subnets].join(', ')} …`)
+  console.error(`Listening for Bambu Lab printers (SSDP) and probing ${hosts.length} hosts on ${[...subnets].join(', ')} …`)
+  const ssdp = bambuDiscover(4000)
   const open = []
   let i = 0
   await Promise.all(Array.from({ length: 200 }, async () => { while (i < hosts.length) { const h = hosts[i++]; for (const p of ports) if (await probe(h, p)) open.push([h, p]) } }))
   const found = []
+  for (const b of await ssdp) found.push({ id: `bambu-${b.serial.toLowerCase()}`, name: `${b.name}${b.model ? ` (${b.model})` : ''}`, kind: 'fdm_printer', adapter: 'bambu', url: b.ip, serial: b.serial, accessCode: 'PASTE_LAN_ACCESS_CODE_FROM_PRINTER_SCREEN' })
   const get = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(2000) }); return { status: r.status, text: (await r.text()).slice(0, 4000), headers: r.headers } } catch { return null } }
   for (const [h, p] of open) {
     const base = `http://${h}:${p}`
-    if (p === 8883) { found.push({ id: `bambu-${h.replace(/\./g, '-')}`, name: `Bambu Lab printer at ${h}`, kind: 'fdm_printer', adapter: 'bambu', url: h, note: 'Port 8883 answers; Bambu adapter is not implemented yet' }); continue }
+    if (p === 8883) { if (!found.some(f => f.adapter === 'bambu' && f.url === h)) found.push({ id: `bambu-${h.replace(/\./g, '-')}`, name: `Bambu Lab printer at ${h}`, kind: 'fdm_printer', adapter: 'bambu', url: h, serial: 'PASTE_SERIAL_FROM_PRINTER_SCREEN', accessCode: 'PASTE_LAN_ACCESS_CODE_FROM_PRINTER_SCREEN' }); continue }
     let r = await get(`${base}/api/version`)
     if (r && r.status === 200 && /octoprint/i.test(r.text)) { found.push({ id: `octoprint-${h.replace(/\./g, '-')}`, name: `OctoPrint at ${h}`, kind: 'fdm_printer', adapter: 'octoprint', url: base, apiKey: 'PASTE_OCTOPRINT_API_KEY' }); continue }
     if (r && r.status === 401 && /prusa/i.test(r.headers.get('www-authenticate') ?? '')) { found.push({ id: `prusa-${h.replace(/\./g, '-')}`, name: `PrusaLink at ${h}`, kind: 'fdm_printer', adapter: 'prusalink', url: base, apiKey: 'PASTE_PRUSALINK_API_KEY' }); continue }
@@ -69,7 +76,7 @@ async function discover() {
     const prusaJson = (() => { try { return r && r.status === 200 && 'printer' in JSON.parse(r.text) } catch { return false } })()
     if (r && (r.status === 401 || prusaJson)) { found.push({ id: `prusa-${h.replace(/\./g, '-')}`, name: `PrusaLink at ${h}`, kind: 'fdm_printer', adapter: 'prusalink', url: base, apiKey: 'PASTE_PRUSALINK_API_KEY' }); continue }
   }
-  if (!found.length) { console.error('No printers found. Check the printer is on the same Wi-Fi and its local API is enabled (PrusaLink, OctoPrint, Moonraker, or Bambu LAN mode).'); return }
+  if (!found.length) { console.error('No printers found. Check the printer is on the same Wi-Fi and its local API is enabled (PrusaLink, OctoPrint, Moonraker, or Bambu LAN-only mode with the access code shown on the printer).'); return }
   console.error(`Found ${found.length} machine(s). Paste into the "machines" array of bench-agent.json:`)
   console.log(JSON.stringify(found, null, 2))
 }
@@ -234,7 +241,7 @@ function simulated(m) {
   }
 }
 
-const factories = { octoprint, moonraker, prusalink, grbl, simulated }
+const factories = { octoprint, moonraker, prusalink, grbl, simulated, bambu }
 
 // ───────────────────────── File preparation ─────────────────────────
 
@@ -250,14 +257,18 @@ async function prepare(job, machine) {
   }
   if (type === 'stl' && !machine.accepts.includes('stl')) {
     if (!haveSlicer) throw new Error('Job needs slicing but no slicer is installed on the agent. Install PrusaSlicer or CuraEngine and set tools.slicer.')
-    const stlPath = join(workDir, `${job.id}.stl`), gcodePath = join(workDir, `${job.id}.gcode`)
+    const outType = config.tools.slicerOutput === '3mf' ? '3mf' : 'gcode'
+    const stlPath = join(workDir, `${job.id}.stl`), outPath = join(workDir, `${job.id}.${outType}`)
     if (!(await stat(stlPath).catch(() => null))) await writeFile(stlPath, content)
     const extra = []
-    if (job.settings?.layerHeightMm) extra.push('--layer-height', String(job.settings.layerHeightMm))
-    if (job.settings?.infillPercent !== undefined) extra.push('--fill-density', `${job.settings.infillPercent}%`)
-    if (job.settings?.supports) extra.push('--support-material')
-    await run(config.tools.slicer, [...(config.tools.slicerArgs ?? ['--export-gcode']), ...extra, '-o', gcodePath, stlPath])
-    name = `${base}.gcode`; type = 'gcode'; content = await readFile(gcodePath, 'utf8')
+    const prusaStyle = !(config.tools.slicerArgs ?? []).some(a => /orca|bambu|--export-3mf/.test(String(a)))
+    if (prusaStyle && job.settings?.layerHeightMm) extra.push('--layer-height', String(job.settings.layerHeightMm))
+    if (prusaStyle && job.settings?.infillPercent !== undefined) extra.push('--fill-density', `${job.settings.infillPercent}%`)
+    if (prusaStyle && job.settings?.supports) extra.push('--support-material')
+    const template = config.tools.slicerArgs ?? ['--export-gcode', '-o', '{out}', '{in}']
+    const slicerArgs = template.map(a => String(a).replace('{out}', outPath).replace('{in}', stlPath))
+    await run(config.tools.slicer, [...extra, ...slicerArgs])
+    name = `${base}.${outType}`; type = outType; content = await readFile(outPath)
   }
   if (!machine.accepts.includes(type)) throw new Error(`${machine.name} cannot take a ${type} file`)
   return { name, type, content }
@@ -267,7 +278,7 @@ async function prepare(job, machine) {
 
 const machines = (config.machines ?? []).map(m => {
   const make = factories[m.adapter]
-  if (!make) { log(`Skipping ${m.id}: unknown adapter ${m.adapter} (bambu is not implemented in this agent yet)`); return null }
+  if (!make) { log(`Skipping ${m.id}: unknown adapter ${m.adapter}`); return null }
   const driver = make(m)
   return { ...m, driver, accepts: [...new Set([...(m.capabilities?.accepts ?? []), ...driver.accepts])], current: null }
 }).filter(Boolean)

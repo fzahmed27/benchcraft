@@ -145,7 +145,7 @@ Companion document: [Platform requirements](prompt-to-device-requirements.md).
 | Gate | Status | Owner | Reviewer | Evidence / decision |
 |---|---|---|---|---|
 | 0 — Scope and targets | In progress | Firoz | TBD | Proposed first template: plant waterer (soil sensor + pump + optional OLED) on a Raspberry Pi Pico 2 W, ~$105 in parts at index prices, no soldering with STEMMA QT parts. Owner and reviewer sign-off pending. |
-| 1 — Physical reference | Blocked | TBD | TBD | Needs a printer and the parts. 2026-09-11: LAN scan (`bench-agent.mjs --discover`) found no printer on the workshop network. Shortlist, prices checked Sep 2026: Original Prusa MINI+ kit from about $409 (PrusaLink, supported today); any Klipper or OctoPrint printer (supported today); Bambu Lab A1 mini $299 (cheapest, but the Bambu adapter is not implemented, so it would need OctoPrint-style relay or new code). Purchase is the owner's decision. |
+| 1 — Physical reference | Blocked | Firoz | TBD | 2026-09-11: owner chose the Bambu Lab A1 mini ($299, US store). Bambu LAN-mode adapter implemented and verified against a fake printer; SSDP discovery ready. Waiting on the printer to arrive, then: LAN-only mode, `--discover`, first enclosure print, then assemble the plant waterer. |
 | 2 — Idea to design | In progress | Firoz | TBD | 2026-09-11: planner, partner index, Designer view and MCP `design_device` implemented; supported prompts produce complete records, unsupported requests are refused, vague prompts ask a question. Beginner readability not yet tested. |
 | 3 — Interactive prototype | In progress | Firoz | TBD | 2026-09-11: "Try it" simulation with sliders and trigger rule. Designs save automatically; project reopening is only wired for legacy recipes. Simulation not yet compared to a physical reference (needs Gate 1). |
 | 4 — Reliable edits | Not started | TBD | TBD | Re-prompting regenerates the whole record; no bounded edit set or undo yet. |
@@ -155,4 +155,4 @@ Companion document: [Platform requirements](prompt-to-device-requirements.md).
 
 ## Immediate next decision
 
-Confirm the Gate 0 proposal (plant waterer on Pico 2 W, ~$105 budget) and buy a printer with a local API so Gate 1 can start. The software loop from prompt to fabrication job already runs end to end against a simulated printer; the first real print and the first assembled device are the evidence the later gates are waiting on.
+Order the Bambu Lab A1 mini and the plant-waterer parts (Gate 0 proposal, ~$105). Everything up to the first print is ready. The software loop from prompt to fabrication job already runs end to end against a simulated printer; the first real print and the first assembled device are the evidence the later gates are waiting on.

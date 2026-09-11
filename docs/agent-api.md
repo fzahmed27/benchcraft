@@ -69,7 +69,7 @@ Browser writes are same-origin only. Agent writes carry `Authorization: Bearer <
 | `prusalink` | Prusa MINI+, MK4, XL, Core One | REST + API key |
 | `grbl` | Desktop CNC routers and diode lasers | USB serial (optional `serialport` package) |
 | `simulated` | None; exercises the loop end to end | — |
-| `bambu` | Listed for planning; not implemented in the agent yet | MQTT + FTPS |
+| `bambu` | Bambu Lab A1 mini, A1, P1, X1 in LAN-only mode | MQTT over TLS (8883) + implicit FTPS (990), found over SSDP |
 
 ```
 node scripts/bench-agent.mjs --discover                     # finds printers on the LAN, prints machine entries
@@ -77,7 +77,16 @@ node scripts/bench-agent.mjs --example > bench-agent.json   # or start from the 
 BENCH_AGENT_TOKEN=… node scripts/bench-agent.mjs bench-agent.json
 ```
 
-`--discover` probes every host on the local /24 for OctoPrint, Moonraker, PrusaLink and Bambu LAN-mode signatures, so a new printer needs no manual configuration beyond its API key.
+`--discover` listens for Bambu Lab SSDP announcements and probes every host on the local /24 for OctoPrint, Moonraker and PrusaLink signatures, so a new printer needs no manual configuration beyond its API key or access code.
+
+### Bambu Lab A1 mini setup
+
+1. On the printer: Settings → WLAN → enable **LAN Only Mode**, note the **access code** and the **serial number** (also on the sticker).
+2. Run `node scripts/bench-agent.mjs --discover`; it prints the machine entry with the IP and serial. Paste it into `bench-agent.json` and fill in `accessCode`.
+3. For OpenSCAD designs, install OpenSCAD and OrcaSlicer on the agent machine and set `tools.slicer` to the OrcaSlicer CLI with `slicerOutput: "3mf"` and `slicerArgs` like `["--load-settings", "machine.json;process.json", "--load-filaments", "filament.json", "--slice", "0", "--export-3mf", "{out}", "{in}"]` using profiles exported from OrcaSlicer for the A1 mini. Plain G-code sliced elsewhere also works.
+4. Jobs upload over FTPS to the printer's SD card and start with the same `project_file` command Bambu Studio uses. Bed levelling runs before each print unless `bedLeveling: false` is set on the machine.
+
+The adapter was verified against a fake printer (`scripts/check-bambu.mjs`) that speaks the same MQTT and FTPS exchanges; the first run on a real A1 mini is still pending.
 
 ## Job lifecycle
 

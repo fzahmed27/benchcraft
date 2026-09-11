@@ -9,14 +9,14 @@ See [docs/agent-api.md](docs/agent-api.md) for the agent surface and [prompt-to-
 - **Partner component index** (`lib/catalog/`): 46 real SKUs from Raspberry Pi, Arduino, Adafruit and generic suppliers, each with capabilities it provides, buses and power it requires, a footprint for enclosure sizing, and code snippets for MicroPython, Arduino C++ and Python. Adafruit price and stock refresh live from Adafruit's public product API; Raspberry Pi prices are published RRP; Arduino and generic prices are estimates.
 - **Prompt-to-device planner** (`lib/design.ts`): extracts needs from everyday language, chooses a controller, resolves parts by capability, adds drivers and power supplies automatically, assigns pins, and produces wiring, a dry-run-by-default program, a parametric OpenSCAD enclosure, fabrication jobs, assembly steps, a checklist, cost, and an interactive simulation spec. Mains, medical, flight and vehicle requests are refused with a reason; vague prompts get a question.
 - **Designer view**: prompt in, design out, with parts, wiring, program, enclosure, assembly, and a "Try it" prototype with sliders. One button sends the enclosure to a printer.
-- **Machines and jobs** (`lib/machines/`, `scripts/bench-agent.mjs`): a local agent registers printers and CNC machines, heartbeats, claims jobs, converts OpenSCAD → STL → G-code when OpenSCAD and a slicer are installed, and drives OctoPrint, Moonraker, PrusaLink, GRBL, or a simulator. Jobs wait for operator approval unless a machine is marked trusted.
+- **Machines and jobs** (`lib/machines/`, `scripts/bench-agent.mjs`): a local agent registers printers and CNC machines, heartbeats, claims jobs, converts OpenSCAD → STL → G-code when OpenSCAD and a slicer are installed, and drives Bambu Lab (LAN mode), OctoPrint, Moonraker, PrusaLink, GRBL, or a simulator. `--discover` finds printers on the network. Jobs wait for operator approval unless a machine is marked trusted.
 - **MCP server** (`/api/mcp`): nine tools covering the index, the planner and the machine queue. Fabrication tools require `BENCH_API_TOKEN`.
 - Original bench recipes (dispenser, logger, cycler) with Arduino firmware and project persistence remain in the Workbench view.
 
 ## Current limits
 
 - No physical device from the planner has been assembled yet; Gate 1 of the build plan is open. Generated programs are syntax-checked by review, not compiled or flashed. The enclosure OpenSCAD has been reviewed but not rendered (OpenSCAD was not installed in the build environment); fit-check the first print.
-- Machine adapters were written against the public OctoPrint, Moonraker, PrusaLink and GRBL protocols and exercised only through the simulated adapter. Bambu Lab is listed but not implemented.
+- Machine adapters were written against the public Bambu Lab LAN, OctoPrint, Moonraker, PrusaLink and GRBL protocols. Only the simulated adapter and the Bambu adapter (against a fake printer, `scripts/check-bambu.mjs`) have been exercised; no real printer has run a job yet. The first target machine is a Bambu Lab A1 mini, chosen 2026-09-11.
 - Partner pricing beyond Adafruit is not live. Nothing here is a supplier quote.
 - Prompt understanding is rule-based. It handles the supported capability vocabulary well and says so when it cannot; it does not invent designs for things it does not recognise. `OPENAI_API_KEY` remains optional and only drives the legacy recipe configurator.
 - The site is owner-private at the Sites access layer. Do not enable public access without adding application-level identity.
@@ -27,6 +27,7 @@ See [docs/agent-api.md](docs/agent-api.md) for the agent surface and [prompt-to-
 npx -y pnpm@11.25.0 install --frozen-lockfile
 pnpm dev                     # http://localhost:5173
 node scripts/check-domain.mjs
+node scripts/check-bambu.mjs        # Bambu adapter against a fake printer (needs openssl)
 ```
 
 Local secrets go in `.dev.vars` (ignored): `BENCH_AGENT_TOKEN`, `BENCH_API_TOKEN`. Migrations live in `drizzle/`; the hosting platform applies them on deploy. Locally, apply the SQL files to the miniflare D1 database once.

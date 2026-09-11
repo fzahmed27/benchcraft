@@ -13,7 +13,7 @@ export const adapters: Record<AdapterId, { name: string; kinds: MachineKind[]; t
   octoprint: { name: 'OctoPrint', kinds: ['fdm_printer'], transport: 'HTTP REST + API key', accepts: ['gcode'], notes: 'Any printer running OctoPrint (Raspberry Pi + USB). Upload and print via /api/files/local.' },
   moonraker: { name: 'Moonraker (Klipper)', kinds: ['fdm_printer'], transport: 'HTTP REST', accepts: ['gcode'], notes: 'Klipper printers: Voron, Creality Sonic Pad, Prusa MK4 with Klipper, etc.' },
   prusalink: { name: 'PrusaLink', kinds: ['fdm_printer'], transport: 'HTTP REST + API key', accepts: ['gcode', 'bgcode'], notes: 'Prusa MINI+, MK4, XL and Core One built-in link.' },
-  bambu: { name: 'Bambu Lab (local MQTT + FTPS)', kinds: ['fdm_printer'], transport: 'MQTT over TLS + FTPS, LAN mode', accepts: ['3mf', 'gcode'], notes: 'A1 mini, A1, P1, X1 in LAN-only mode with the access code.' },
+  bambu: { name: 'Bambu Lab (LAN mode)', kinds: ['fdm_printer'], transport: 'MQTT over TLS (8883) + implicit FTPS (990)', accepts: ['3mf', 'gcode'], notes: 'A1 mini, A1, P1, X1 in LAN-only mode. Needs the printer IP, serial and the access code from the printer screen. Discovered automatically over SSDP.' },
   grbl: { name: 'GRBL / grblHAL', kinds: ['cnc_router', 'laser_cutter'], transport: 'USB serial 115200', accepts: ['gcode'], notes: 'Desktop CNC routers and diode lasers. Streams G-code line by line with flow control.' },
   simulated: { name: 'Simulated machine', kinds: ['fdm_printer', 'cnc_router', 'laser_cutter'], transport: 'none', accepts: ['gcode', 'stl', 'scad', '3mf'], notes: 'Accepts any job and reports progress on a timer. Lets the whole prompt-to-fabrication loop run before hardware arrives.' },
 }
