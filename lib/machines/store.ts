@@ -88,8 +88,9 @@ export async function updateJob(id: string, patch: { state?: JobState; progress?
     if (actor === 'agent' && patch.state === 'queued' && job.state !== 'failed') return { job, error: 'Agents cannot queue jobs' }
   }
   const now = new Date().toISOString()
-  await database().prepare('UPDATE jobs SET state=?,progress=?,message=?,updated_at=? WHERE id=?')
-    .bind(patch.state ?? job.state, patch.progress ?? (patch.state === 'completed' ? 100 : job.progress), (patch.message ?? job.message).slice(0, 400), now, id).run()
+  const result = await database().prepare('UPDATE jobs SET state=?,progress=?,message=?,updated_at=? WHERE id=? AND state=?')
+    .bind(patch.state ?? job.state, patch.progress ?? (patch.state === 'completed' ? 100 : job.progress), (patch.message ?? job.message).slice(0, 400), now, id, job.state).run()
+  if (!(result.meta.changes ?? 0)) return { job: await getJob(id), error: 'Job changed while updating; reload its current state' }
   return { job: await getJob(id) }
 }
 

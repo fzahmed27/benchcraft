@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { bambu, bambuDiscover } from './bench-agent-bambu.mjs'
+import { acceptedInputs, startPreparedJob } from './bench-agent-jobs.mjs'
 
 const EXAMPLE = {
   server: 'https://your-benchcraft-site.example',
@@ -248,14 +249,14 @@ const factories = { octoprint, moonraker, prusalink, grbl, simulated, bambu }
 async function prepare(job, machine) {
   let { name, type, content } = job.file
   const base = name.replace(/\.[^.]+$/, '')
-  if (type === 'scad' && !machine.accepts.includes('scad')) {
+  if (type === 'scad' && !machine.driver.accepts.includes('scad')) {
     if (!haveOpenscad) throw new Error('Job is OpenSCAD but OpenSCAD is not installed on the agent. Install it or download the STL manually.')
     const scadPath = join(workDir, `${job.id}.scad`), stlPath = join(workDir, `${job.id}.stl`)
     await writeFile(scadPath, content)
     await run(config.tools.openscad, ['-o', stlPath, scadPath])
     name = `${base}.stl`; type = 'stl'; content = await readFile(stlPath)
   }
-  if (type === 'stl' && !machine.accepts.includes('stl')) {
+  if (type === 'stl' && !machine.driver.accepts.includes('stl')) {
     if (!haveSlicer) throw new Error('Job needs slicing but no slicer is installed on the agent. Install PrusaSlicer or CuraEngine and set tools.slicer.')
     const outType = config.tools.slicerOutput === '3mf' ? '3mf' : 'gcode'
     const stlPath = join(workDir, `${job.id}.stl`), outPath = join(workDir, `${job.id}.${outType}`)
@@ -270,7 +271,7 @@ async function prepare(job, machine) {
     await run(config.tools.slicer, [...extra, ...slicerArgs])
     name = `${base}.${outType}`; type = outType; content = await readFile(outPath)
   }
-  if (!machine.accepts.includes(type)) throw new Error(`${machine.name} cannot take a ${type} file`)
+  if (!machine.driver.accepts.includes(type)) throw new Error(`${machine.name} cannot take a ${type} file`)
   return { name, type, content }
 }
 
@@ -280,7 +281,7 @@ const machines = (config.machines ?? []).map(m => {
   const make = factories[m.adapter]
   if (!make) { log(`Skipping ${m.id}: unknown adapter ${m.adapter}`); return null }
   const driver = make(m)
-  return { ...m, driver, accepts: [...new Set([...(m.capabilities?.accepts ?? []), ...driver.accepts])], current: null }
+  return { ...m, driver, accepts: acceptedInputs(driver.accepts, { kind: m.kind, canRenderScad: haveOpenscad, canSlice: haveSlicer, slicerOutput: config.tools?.slicerOutput ?? 'gcode' }), current: null }
 }).filter(Boolean)
 
 async function register() {
@@ -291,7 +292,7 @@ async function register() {
 }
 
 async function reportJob(id, patch) {
-  try { await api('/api/jobs', { method: 'PATCH', body: JSON.stringify({ id, ...patch }) }) } catch (e) { log(`job ${id} update failed: ${e.message}`) }
+  return api('/api/jobs', { method: 'PATCH', body: JSON.stringify({ id, ...patch }) })
 }
 
 async function tick(m) {
@@ -300,25 +301,29 @@ async function tick(m) {
   await api('/api/machines', { method: 'PATCH', body: JSON.stringify({ id: m.id, status: { state: status.state, detail: String(status.detail ?? '').slice(0, 240) } }) }).catch(e => log(`heartbeat ${m.id} failed: ${e.message}`))
 
   if (m.current) {
+    // Process cancellation before progress updates, including completion races.
+    const { job: currentJob } = await api(`/api/jobs?id=${m.current.id}`)
+    if (currentJob?.state === 'cancelled') {
+      await m.driver.cancel()
+      log(`${m.id}: cancelled ${m.current.id}`)
+      m.current = null
+      return
+    }
     let p
     try { p = await m.driver.progress() } catch (e) { p = { progress: m.current.progress, done: false, failed: false, detail: e.message } }
     if (p.done) { await reportJob(m.current.id, { state: 'completed', progress: 100, message: p.detail || 'Finished' }); log(`${m.id}: job ${m.current.id} completed`); m.current = null }
     else if (p.failed) { await reportJob(m.current.id, { state: 'failed', message: p.detail || 'Machine reported a failure' }); log(`${m.id}: job ${m.current.id} failed`); m.current = null }
     else if (p.progress !== m.current.progress) { m.current.progress = p.progress; await reportJob(m.current.id, { progress: p.progress, message: p.detail || 'Running' }) }
-    // Operator cancel from the workbench
-    try { const { job } = await api(`/api/jobs?id=${m.current?.id}`); if (job && job.state === 'cancelled' && m.current) { await m.driver.cancel(); log(`${m.id}: cancelled ${job.id}`); m.current = null } } catch { /* ignore */ }
     return
   }
   if (status.state !== 'idle') return
   const { job } = await api('/api/jobs/claim', { method: 'POST', body: JSON.stringify({ machineId: m.id }) })
   if (!job) return
   log(`${m.id}: claimed ${job.id} (${job.title})`)
-  await reportJob(job.id, { state: 'preparing', message: 'Converting and uploading' })
   try {
-    const file = await prepare(job, m)
-    await m.driver.start(file)
+    await reportJob(job.id, { state: 'preparing', message: 'Converting and uploading' })
+    await startPreparedJob(job, m, { prepare, getJob: async id => (await api(`/api/jobs?id=${id}`)).job, reportJob })
     m.current = { id: job.id, progress: 0 }
-    await reportJob(job.id, { state: 'running', progress: 0, message: `Started on ${m.name}` })
   } catch (e) {
     log(`${m.id}: job ${job.id} failed: ${e.message}`)
     await reportJob(job.id, { state: 'failed', message: e.message.slice(0, 400) })

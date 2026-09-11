@@ -91,3 +91,14 @@ assert.equal(jobInput.safeParse({machineId: 'sim', title: 'T', file: {name: '../
 assert.equal(machineInput.safeParse({id: 'sim', name: 'S', kind: 'fdm_printer', adapter: 'simulated'}).success, true)
 
 console.log('Prompt-to-device checks passed: partner index, planner, firmware, enclosure, simulation, job rules.')
+
+// An owned compatible sensor must be preferred over buying an alternative.
+const tempDefault = designDevice({ prompt: 'Measure temperature' })
+const tempSensor = tempDefault.parts.find(p => components.find(c => c.id === p.id)?.category === 'Sensor')
+assert.ok(tempSensor)
+const tempOwned = designDevice({ prompt: 'Measure temperature', inventory: [tempSensor.id] })
+assert.ok(tempOwned.parts.some(p => p.id === tempSensor.id && p.owned), 'reuse the owned temperature sensor')
+const unavailableIndex = components.map(c => c.id === tempSensor.id ? { ...c, stock: 'out-of-stock' } : c)
+const tempAvailable = designDevice({ prompt: 'Measure temperature' }, unavailableIndex)
+assert.ok(!tempAvailable.parts.some(p => p.id === tempSensor.id), 'prefer an available temperature sensor')
+console.log('Planner regression checks passed: owned and available components preferred.')

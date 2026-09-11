@@ -196,7 +196,7 @@ export function designDevice(input: DesignRequest, index: Component[] = fullInde
       if (!compatible(c)) continue
       const covers = c.provides.filter(p => remaining.has(p))
       if (!covers.length) continue
-      const score = covers.length * 100 - c.price - (inventory.has(c.id) ? 1000 : 0) - (c.stock === 'in-stock' ? 5 : 0) + (c.stock === 'out-of-stock' ? 40 : 0)
+      const score = covers.length * 100 - c.price + (inventory.has(c.id) ? 1000 : 0) + (c.stock === 'in-stock' ? 5 : 0) - (c.stock === 'out-of-stock' ? 40 : 0)
       if (!best || score > best.score) best = { c, covers, score }
     }
     if (!best) {

@@ -15,7 +15,7 @@ execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyo
 const creds = { key: readFileSync(join(dir, 'k.pem')), cert: readFileSync(join(dir, 'c.pem')) }
 const SERIAL = 'TESTSERIAL01'
 const log = []
-let uploaded = null, state = { gcode_state: 'IDLE', mc_percent: 0, nozzle_temper: 25 }
+let uploaded = null, state = { gcode_state: 'FINISH', mc_percent: 100, nozzle_temper: 25 }
 
 // ── fake MQTT broker
 tls.createServer(creds, sock => {
@@ -28,7 +28,7 @@ tls.createServer(creds, sock => {
     else if (p.type === 'publish') {
       const j = JSON.parse(p.payload); log.push(`REQUEST ${p.topic} ${j.pushing?.command ?? j.print?.command}`)
       if (j.pushing?.command === 'pushall') report()
-      if (j.print?.command === 'project_file') { log.push(`print url=${j.print.url} param=${j.print.param}`); state = { ...state, gcode_state: 'RUNNING', mc_percent: 10 }; report(); setTimeout(() => { state = { ...state, mc_percent: 60 }; report() }, 800); setTimeout(() => { state = { ...state, gcode_state: 'FINISH', mc_percent: 100 }; report() }, 1600) }
+      if (j.print?.command === 'project_file') { log.push(`print url=${j.print.url} param=${j.print.param}`); report(); setTimeout(() => { state = { ...state, gcode_state: 'RUNNING', mc_percent: 10 }; report() }, 150); setTimeout(() => { state = { ...state, mc_percent: 60 }; report() }, 800); setTimeout(() => { state = { ...state, gcode_state: 'FINISH', mc_percent: 100 }; report() }, 1600) }
       if (j.print?.command === 'stop') { state = { ...state, gcode_state: 'IDLE' }; report() }
     }
   } })
@@ -56,6 +56,8 @@ assert.equal(bambuPrintCommand('box.gcode').print.url, 'file:///sdcard/box.gcode
 assert.equal((await m.status()).state, 'idle')
 await m.start({ name: 'enclosure.gcode', type: 'gcode', content: 'G28\nG1 X10\n' })
 assert.equal(uploaded?.toString(), 'G28\nG1 X10\n', 'file uploaded byte-for-byte over FTPS')
+await new Promise(r => setTimeout(r, 50))
+assert.equal((await m.progress()).done, false, 'a stale FINISH report must not complete the new print')
 const seen = []
 for (const t of [300, 900, 1000]) { await new Promise(r => setTimeout(r, t)); seen.push(await m.progress()) }
 assert.deepEqual(seen.map(p => [p.progress, p.done]), [[10, false], [60, false], [100, true]])

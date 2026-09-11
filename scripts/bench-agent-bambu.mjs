@@ -133,12 +133,15 @@ export function bambuPrintCommand(name, opts = {}) {
 
 export function bambu(m) {
   const serial = m.serial, host = m.url?.replace(/^https?:\/\//, '') ?? m.host
-  let client = null, last = null, printingName = null, reportedDone = false
+  let client = null, last = null, printingName = null, reportedDone = false, startedAt = 0, observedRunning = false
   async function ensure() {
     if (client) return client
     if (!serial || !m.accessCode || !host) throw new Error('Bambu machine needs url (printer IP), serial and accessCode (Settings → WLAN → LAN Only Mode on the printer)')
     client = await mqttConnect({ host, port: m.mqttPort ?? 8883, username: 'bblp', password: m.accessCode, clientId: `benchcraft-${Math.random().toString(36).slice(2, 8)}`,
-      onMessage: (_t, payload) => { try { const j = JSON.parse(payload); if (j.print) last = { print: { ...(last?.print ?? {}), ...j.print } } } catch { /* ignore */ } },
+      onMessage: (_t, payload) => { try { const j = JSON.parse(payload); if (j.print) {
+        last = { print: { ...(last?.print ?? {}), ...j.print } }
+        if (printingName && ['RUNNING', 'PREPARE', 'SLICING', 'PAUSE'].includes(j.print.gcode_state)) observedRunning = true
+      } } catch { /* ignore */ } },
       onClose: () => { client = null } })
     client.subscribe(`device/${serial}/report`)
     client.publish(`device/${serial}/request`, { pushing: { sequence_id: '0', command: 'pushall' } })
@@ -150,13 +153,14 @@ export function bambu(m) {
     async start(file) {
       const c = await ensure()
       await ftpsUpload({ host, port: m.ftpPort ?? 990, username: 'bblp', password: m.accessCode, name: file.name, content: file.content })
-      printingName = file.name; reportedDone = false
+      printingName = file.name; reportedDone = false; observedRunning = false; startedAt = Date.now(); last = null
       c.publish(`device/${serial}/request`, bambuPrintCommand(file.name, { bedLeveling: m.bedLeveling }))
     },
     async progress() {
       await ensure()
       const s = last?.print?.gcode_state, pct = Number(last?.print?.mc_percent ?? 0)
-      if (s === 'FINISH' && printingName && !reportedDone) { reportedDone = true; return { progress: 100, done: true, failed: false, detail: `Finished ${printingName}` } }
+      if (s === 'FINISH' && printingName && observedRunning && !reportedDone) { reportedDone = true; return { progress: 100, done: true, failed: false, detail: `Finished ${printingName}` } }
+      if (printingName && !observedRunning && Date.now() - startedAt > 120000) return { progress: 0, done: false, failed: true, detail: 'Printer did not confirm this job started within 120 seconds; check the printer before retrying' }
       if (s === 'FAILED') return { progress: pct, done: false, failed: true, detail: `Printer reported FAILED (error ${last?.print?.print_error ?? 'unknown'})` }
       return { progress: pct, done: false, failed: false, detail: bambuState(last).detail }
     },

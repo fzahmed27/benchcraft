@@ -56,3 +56,13 @@ Then open Designer, describe a device, send its enclosure to the simulated print
 ## Verification
 
 TypeScript, the production build, and `scripts/check-domain.mjs` pass. The domain checks cover index integrity, capability resolution, driver and power insertion, pin constants in generated MicroPython and Arduino, enclosure generation, simulation triggers, refusals, and job state rules. The full loop — design over MCP, submit with token, approval gate, agent claim, simulated run, completion — was exercised against a local dev server. Browser rendering of the new views was not screenshot-verified in this environment.
+
+## Review fixes
+
+Machine input formats are now derived from the native adapter formats and available conversion tools. Restart the bench agent after updating it so its registered capabilities include OpenSCAD/STL where conversion is supported. A printer slicer is not advertised for CNC or laser toolpaths.
+
+Before dispatch, the agent checks the job state again after conversion and requires a successful server transition. Concurrent state updates cannot overwrite cancellation. Cancellation of an already running machine is still polled and is not an emergency stop.
+
+Bambu completion requires a new active-print report before FINISH; a missing start confirmation times out after 120 seconds. The component planner favors owned and available compatible parts.
+
+Regression commands: `node scripts/check-agent-jobs.mjs`, `node scripts/check-bambu.mjs`, and `node --experimental-strip-types scripts/check-domain.mjs`. Hardware behavior still requires physical validation.
