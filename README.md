@@ -1,35 +1,56 @@
 # Benchcraft
 
-A private workbench for custom bench automation. Includes configurable recipes for timed liquid dispensing, temperature logging, and actuator cycling; a planning component catalogue; wiring schedules; firmware and OpenSCAD exports; simulated timing; and saved projects with acceptance checklists.
+Benchcraft lets a person, or their agent, turn a plain-language request into a buildable physical device. Describe what it should do; Benchcraft picks compatible parts from a partner component index, writes the program, generates a printable enclosure, and can send that enclosure to a connected 3D printer through a local bench agent. Everything the workbench can do is also exposed to agents over the Model Context Protocol.
 
-## Implemented
+See [docs/agent-api.md](docs/agent-api.md) for the agent surface and [prompt-to-device-gated-build-plan.md](prompt-to-device-gated-build-plan.md) for the delivery gates.
 
-- React/Vinext interface with responsive workspace, projects, catalogue, and connection status.
-- Cloudflare D1 project persistence using parameterized statements and Drizzle schema migrations.
-- Arduino firmware templates for a classic ESP32. Actuator sketches default to dry-run mode.
-- Markdown build-plan, CSV BOM, Arduino sketch, and OpenSCAD tray downloads.
-- Optional server-side OpenAI Responses integration restricted to supported recipes.
-- Feature-detected WebMCP project read, configuration, and save tools.
+## What works
+
+- **Partner component index** (`lib/catalog/`): 46 real SKUs from Raspberry Pi, Arduino, Adafruit and generic suppliers, each with capabilities it provides, buses and power it requires, a footprint for enclosure sizing, and code snippets for MicroPython, Arduino C++ and Python. Adafruit price and stock refresh live from Adafruit's public product API; Raspberry Pi prices are published RRP; Arduino and generic prices are estimates.
+- **Prompt-to-device planner** (`lib/design.ts`): extracts needs from everyday language, chooses a controller, resolves parts by capability, adds drivers and power supplies automatically, assigns pins, and produces wiring, a dry-run-by-default program, a parametric OpenSCAD enclosure, fabrication jobs, assembly steps, a checklist, cost, and an interactive simulation spec. Mains, medical, flight and vehicle requests are refused with a reason; vague prompts get a question.
+- **Designer view**: prompt in, design out, with parts, wiring, program, enclosure, assembly, and a "Try it" prototype with sliders. One button sends the enclosure to a printer.
+- **Machines and jobs** (`lib/machines/`, `scripts/bench-agent.mjs`): a local agent registers printers and CNC machines, heartbeats, claims jobs, converts OpenSCAD → STL → G-code when OpenSCAD and a slicer are installed, and drives OctoPrint, Moonraker, PrusaLink, GRBL, or a simulator. Jobs wait for operator approval unless a machine is marked trusted.
+- **MCP server** (`/api/mcp`): nine tools covering the index, the planner and the machine queue. Fabrication tools require `BENCH_API_TOKEN`.
+- Original bench recipes (dispenser, logger, cycler) with Arduino firmware and project persistence remain in the Workbench view.
 
 ## Current limits
 
-OpenAI Platform rejected the API key provisioning request. No API key was created or saved. Until `OPENAI_API_KEY` is securely configured as a Sites runtime secret, AI generation is unavailable and the app explicitly uses deterministic recipe selection. The AI route has not been exercised against a live model.
+- No physical device from the planner has been assembled yet; Gate 1 of the build plan is open. Generated programs are syntax-checked by review, not compiled or flashed. The enclosure OpenSCAD has been reviewed but not rendered (OpenSCAD was not installed in the build environment); fit-check the first print.
+- Machine adapters were written against the public OctoPrint, Moonraker, PrusaLink and GRBL protocols and exercised only through the simulated adapter. Bambu Lab is listed but not implemented.
+- Partner pricing beyond Adafruit is not live. Nothing here is a supplier quote.
+- Prompt understanding is rule-based. It handles the supported capability vocabulary well and says so when it cannot; it does not invent designs for things it does not recognise. `OPENAI_API_KEY` remains optional and only drives the legacy recipe configurator.
+- The site is owner-private at the Sites access layer. Do not enable public access without adding application-level identity.
 
-The catalogue contains illustrative component types and budget estimates, not live vendor SKUs or stock. Firmware has not been compiled for or tested on a physical board. The tray is a dimensional concept, not a fit-validated enclosure. There is no serial hardware bridge, printer integration, or CNC operation. Simulations are ideal timing calculations, not measured behavior.
+## Running it
 
-Deployment is owner-private at the Sites access layer. Project records belong to that private workspace; do not enable multi-user public access without adding application-level identity and record ownership.
+```
+npx -y pnpm@11.25.0 install --frozen-lockfile
+pnpm dev                     # http://localhost:5173
+node scripts/check-domain.mjs
+```
+
+Local secrets go in `.dev.vars` (ignored): `BENCH_AGENT_TOKEN`, `BENCH_API_TOKEN`. Migrations live in `drizzle/`; the hosting platform applies them on deploy. Locally, apply the SQL files to the miniflare D1 database once.
+
+To try the whole loop without hardware:
+
+```
+node scripts/bench-agent.mjs --example > bench-agent.json      # keep only sim-printer, set server
+BENCH_AGENT_TOKEN=… node scripts/bench-agent.mjs bench-agent.json
+```
+
+Then open Designer, describe a device, send its enclosure to the simulated printer, and approve the job under Machines.
 
 ## Source map
 
-- `app/page.tsx`: workspace and project interactions
-- `lib/bench.ts`: recipes, validation, calculations, and exports
-- `app/api/projects/route.ts`: project storage
-- `app/api/generate/route.ts`: optional AI configuration
-- `db/schema.ts` and `drizzle/`: database schema and migrations
-- `scripts/check-domain.mjs`: targeted domain checks
+- `lib/catalog/schema.ts`, `seed.ts`, `index.ts`: component index, capability vocabulary, search, live refresh
+- `lib/design.ts`: prompt → design record
+- `lib/machines/schema.ts`, `store.ts`: machines, jobs, designs in D1
+- `lib/mcp.ts`, `app/api/mcp/route.ts`: MCP server
+- `app/api/catalogue`, `design`, `machines`, `jobs`, `jobs/claim`, `status`: HTTP routes
+- `components/designer.tsx`, `components/machines.tsx`: Designer and Machines views
+- `scripts/bench-agent.mjs`: local machine agent
+- `lib/bench.ts`, `app/page.tsx`: original recipes and workspace
 
 ## Verification
 
-TypeScript checking and the production build pass. Domain checks cover parameter limits, dose cutoff, prompt extraction, and dry-run defaults. SQLite migration and save/update/reload queries were exercised in an isolated database. Browser and WebMCP runtime validation were not performed in this environment.
-
-Use the existing package manager and the Sites building/hosting skills for dependency management, build, migrations, and publication. Keep API credentials out of source control and browser bundles.
+TypeScript, the production build, and `scripts/check-domain.mjs` pass. The domain checks cover index integrity, capability resolution, driver and power insertion, pin constants in generated MicroPython and Arduino, enclosure generation, simulation triggers, refusals, and job state rules. The full loop — design over MCP, submit with token, approval gate, agent claim, simulated run, completion — was exercised against a local dev server. Browser rendering of the new views was not screenshot-verified in this environment.

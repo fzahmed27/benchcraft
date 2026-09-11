@@ -44,3 +44,7 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+
+# Local secrets for wrangler/miniflare
+.dev.vars
+bench-agent.json
