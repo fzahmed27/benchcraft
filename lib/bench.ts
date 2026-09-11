@@ -10,7 +10,8 @@ export const configSchema = z.object({volume:z.number().min(1).max(1000),flow:z.
 export const projectInput = z.object({id:z.string().uuid(),name:z.string().trim().min(1).max(90),prompt:z.string().max(2000),recipe:z.enum(recipeIds),config:configSchema,checked:z.array(z.number().int().min(0).max(5)).max(6),notes:z.string().max(4000)}).strict();
 export type Project = z.infer<typeof projectInput> & {updatedAt?:string};
 export const defaults = {volume:100,flow:120,timeout:90,interval:5,cycles:50,onTime:2,offTime:3};
-export function draft(recipe:RecipeId='dispenser'):Project{return {id:crypto.randomUUID(),name:recipes[recipe].title,prompt:'',recipe,config:{...defaults},checked:[],notes:''};}
+export function projectId(){ const bytes=crypto.getRandomValues(new Uint8Array(16)); bytes[6]=(bytes[6]&15)|64; bytes[8]=(bytes[8]&63)|128; const h=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`; }
+export function draft(recipe:RecipeId='dispenser'):Project{return {id:projectId(),name:recipes[recipe].title,prompt:'',recipe,config:{...defaults},checked:[],notes:''};}
 export type Part = {id:string;name:string;category:string;spec:string;price:number;notes:string};
 export const catalogue:Part[] = [
  {id:'esp32',name:'ESP32 development board',category:'Controller',spec:'ESP32-WROOM · 3.3 V logic · USB power',price:12,notes:'Choose a classic ESP32 board exposing GPIO 4, 18, 25, 26, and 27. Verify the exact board pinout.'},
